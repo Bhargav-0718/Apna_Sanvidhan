@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+
+# Data artifacts
+data/processed/
+data/cache/
+
+# OS
+.DS_Store
+Thumbs.db
+.env
+logs/
