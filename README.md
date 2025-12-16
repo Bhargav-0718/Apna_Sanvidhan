@@ -219,11 +219,10 @@ apna_sanvidhan/
     │   ├── semantic_chunker.py
     │   └── buffer_merger.py
     ├── graph/                      # Graph construction
-    │   ├── entity_extractor.py
     │   ├── batch_entity_extractor.py  # Parallel entity extraction
+    │   ├── batch_summarizer.py        # Parallel summarization
     │   ├── graph_builder.py
-    │   ├── community_detector.py
-    │   └── summarizer.py
+    │   └── community_detector.py
     ├── llm/                        # LLM interaction
     │   ├── llm_client.py
     │   ├── prompt_templates.py

@@ -188,11 +188,12 @@ class BatchEntityEmbeddingProcessor:
                 try:
                     new_embeddings = self.embedding_function(names_to_embed)
                     
-                    # Cache and store new embeddings
+                    # Cache and store new embeddings (ensure flattened)
                     for name, emb in zip(names_to_embed, new_embeddings):
-                        batch_embeddings[name] = emb
+                        emb_flat = np.array(emb).flatten()
+                        batch_embeddings[name] = emb_flat
                         if cache is not None:
-                            cache.set_entity_embedding(name, emb)
+                            cache.set_entity_embedding(name, emb_flat)
                     
                 except Exception as e:
                     logger.error(f"Error getting embeddings for entity batch: {e}")

@@ -22,7 +22,7 @@ from ..chunking.buffer_merger import BufferMerger
 from ..graph.batch_entity_extractor import BatchEntityExtractor
 from ..graph.graph_builder import GraphBuilder
 from ..graph.community_detector import CommunityDetector
-from ..graph.summarizer import Summarizer
+from ..graph import BatchSummarizer
 from ..llm.llm_client import LLMClient
 from ..llm.answer_generator import AnswerGenerator
 from ..retrieval.local_search import LocalSearch
@@ -270,9 +270,12 @@ class ApnaSanvidhan:
             self.community_summaries = summaries_data.get("community_summaries", {})
         else:
             logger.info("Step 6: Summarization")
-            self.summarizer = Summarizer(
+            # Use parallel batch summarizer (prompts unchanged)
+            max_workers = self.config["summarization"].get("max_workers", 5)
+            self.summarizer = BatchSummarizer(
                 llm_client=self.llm_client,
-                show_progress=self.config["summarization"].get("progress_bar", True)
+                show_progress=self.config["summarization"].get("progress_bar", True),
+                max_workers=max_workers,
             )
             # Generate chunk summaries
             self.chunk_summaries = self.summarizer.summarize_chunks(self.chunks)
@@ -510,5 +513,4 @@ class ApnaSanvidhan:
         self.answer_generator = AnswerGenerator(llm_client=self.llm_client)
 
 
-# Backward compatibility alias for existing code
-AmbedkarGPT = ApnaSanvidhan
+ 

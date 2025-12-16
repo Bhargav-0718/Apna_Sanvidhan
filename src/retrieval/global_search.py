@@ -61,6 +61,13 @@ class GlobalSearch:
         
         # Convert string keys back to integers
         self.community_embeddings = {int(k): v for k, v in embeddings_dict.items()}
+        # Persist per-community embeddings in cache as well
+        try:
+            for k, v in self.community_embeddings.items():
+                self.cache.set_community_embedding(int(k), v)
+        except Exception:
+            # Non-fatal: sentence-level cache still persists embeddings
+            pass
     
     def rank_communities(
         self, 

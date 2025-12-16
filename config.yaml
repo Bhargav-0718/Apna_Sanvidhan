@@ -72,6 +72,8 @@ summarization:
   summary_style: "concise"  # Options: concise, detailed
   max_summary_length: 500
   progress_bar: true
+  parallel: true           # Use parallel summarization
+  max_workers: 5           # Number of parallel workers for summarization
   
 # Retrieval Configuration
 retrieval:
