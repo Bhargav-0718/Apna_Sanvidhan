@@ -20,6 +20,9 @@ Apna Sanvidhan implements the SemRAG architecture specifically tailored for the 
 ✅ **Hybrid Search**: Combines local and global retrieval strategies
 ✅ **Configurable Pipeline**: YAML-based configuration
 ✅ **Persistent Storage**: Save and reload processed constitutional data
+✅ **Embedding Caching**: Persistent pickle-based caching for sentences, chunks, entities, and communities
+✅ **Batch Processing**: Optimized batch embedding generation with configurable batch sizes
+✅ **Parallel Entity Extraction**: Concurrent LLM API calls with ThreadPoolExecutor for faster extraction
 
 ## Installation
 
@@ -107,19 +110,31 @@ chunking:
   buffer_size: 1  # Context sentences (0, 1, 3, 5)
   min_chunk_size: 100
   max_chunk_size: 1000
+  batch_size: 50  # Batch size for embedding processing
 
 # Entity extraction for Constitution
 entity_extraction:
+  method: "llm"  # Use LLM for entity extraction
+  batch_size: 10  # Batch size for entity extraction
+  max_workers: 5  # Number of parallel workers for concurrent API calls
+  use_extraction_cache: true  # Cache entity extraction results
+  skip_duplicate_chunks: true  # Skip extracting from duplicate chunk texts
   entity_types:
-    - PERSON
-    - ORGANIZATION
-    - LOCATION
-    - ARTICLE/SECTION
-    - FUNDAMENTAL_RIGHT
-    - DIRECTIVE_PRINCIPLE
-    - DUTY
-    - CONCEPT
-    - DATE
+    - PERSON  # Constitutional framers, officials, judges
+    - ORGANIZATION  # Government bodies, institutions, Parliament, Courts
+    - LOCATION  # States, territories, geographical divisions
+    - ARTICLE/SECTION  # Constitutional articles and sections
+    - FUNDAMENTAL_RIGHT  # Rights guaranteed by Constitution
+    - DIRECTIVE_PRINCIPLE  # Directive Principles of State Policy
+    - DUTY  # Fundamental Duties
+    - CONCEPT  # Constitutional principles (sovereignty, democracy, secularism)
+    - DATE  # Important constitutional dates and amendments
+  extract_relationships: true
+  max_entities_per_chunk: 20
+
+# Data storage and caching
+data:
+  cache_dir: "./data/cache"  # Directory for embedding cache files
 
 # Community detection
 community_detection:
@@ -132,8 +147,10 @@ retrieval:
   local_search:
     top_k_entities: 10
     top_k_chunks: 5
+    batch_size: 50  # Batch size for chunk embedding processing
   global_search:
     top_k_communities: 5
+    batch_size: 50  # Batch size for community embedding processing
   hybrid:
     local_weight: 0.5
     global_weight: 0.5
@@ -195,29 +212,28 @@ apna_sanvidhan/
 │       ├── communities.json
 │       └── summaries.json
 ├── src/
-│   ├── chunking/                   # Semantic chunking modules
-│   │   ├── semantic_chunker.py
-│   │   └── buffer_merger.py
-│   ├── graph/                      # Graph construction
-│   │   ├── entity_extractor.py
-│   │   ├── graph_builder.py
-│   │   ├── community_detector.py
-│   │   └── summarizer.py
-│   ├── llm/                        # LLM interaction
-│   │   ├── llm_client.py
-│   │   ├── prompt_templates.py
-│   │   └── answer_generator.py
-│   ├── retrieval/                  # Retrieval modules
-│   │   ├── local_search.py
-│   │   ├── global_search.py
-│   │   └── ranker.py
-│   └── pipeline/                   # Main pipeline
-│       └── apnasanvidhan.py
-└── tests/                          # Unit tests
-    ├── test_chunking.py
-    ├── test_retrieval.py
-    └── test_integration.py
-```
+    ├── cache/                      # Embedding caching and batch processing
+    │   ├── embedding_cache.py      # Pickle-based persistent embedding cache
+    │   └── batch_processor.py      # Batch embedding processor with cache
+    ├── chunking/                   # Semantic chunking modules
+    │   ├── semantic_chunker.py
+    │   └── buffer_merger.py
+    ├── graph/                      # Graph construction
+    │   ├── entity_extractor.py
+    │   ├── batch_entity_extractor.py  # Parallel entity extraction
+    │   ├── graph_builder.py
+    │   ├── community_detector.py
+    │   └── summarizer.py
+    ├── llm/                        # LLM interaction
+    │   ├── llm_client.py
+    │   ├── prompt_templates.py
+    │   └── answer_generator.py
+    ├── retrieval/                  # Retrieval modules
+    │   ├── local_search.py
+    │   ├── global_search.py
+    │   └── ranker.py
+    └── pipeline/                   # Main pipeline
+        └── apnasanvidhan.py
 
 ## API Reference
 
@@ -240,18 +256,42 @@ Main pipeline class for Constitution of India queries.
 
 ## Performance Tips
 
-1. **Buffer Size**: 
-   - 0: No context (fastest, less accurate)
-   - 1: One sentence context (balanced)
-   - 3-5: More context (slower, more accurate)
+### 1. Embedding Caching
+- **First run**: Embeddings are computed and cached to `./data/cache/`
+- **Subsequent runs**: Embeddings loaded from cache instantly (2-3 seconds total)
+- **Cache files**: 
+  - `sentence_embeddings.pkl` - Sentence embeddings (hash-keyed)
+  - `chunk_embeddings.pkl` - Chunk embeddings (ID-keyed)
+  - `entity_embeddings.pkl` - Entity embeddings (hash-keyed)
+  - `community_embeddings.pkl` - Community embeddings (ID-keyed)
 
-2. **Community Detection**:
-   - Use Leiden for better quality (requires igraph)
-   - Use Louvain for faster processing
+### 2. Batch Processing
+- **Chunking embeddings**: Set `chunking.batch_size: 50` (default)
+- **Retrieval embeddings**: Set `retrieval.local_search.batch_size: 50` (default)
+- **Global search**: Set `retrieval.global_search.batch_size: 50` (default)
+- Larger batches = faster (if API allows), smaller batches = safer (rate limits)
 
-3. **Caching**:
-   - Process the Constitution once, then use `load_processed_data()`
-   - Embeddings are cached automatically
+### 3. Parallel Entity Extraction
+- **Max workers**: Set `entity_extraction.max_workers: 5` (default)
+- **Higher workers** (5-10): Faster but higher API load
+- **Lower workers** (1-3): Slower but safer for rate limits
+- **Batch size**: Set `entity_extraction.batch_size: 10` (default)
+- **Skip duplicates**: Enable `entity_extraction.skip_duplicate_chunks: true` to skip redundant text
+- **Typical speedup**: 3-5x faster than sequential extraction
+
+### 4. Buffer Size
+- **0**: No context (fastest, less accurate)
+- **1**: One sentence context (balanced)
+- **3-5**: More context (slower, more accurate)
+
+### 5. Community Detection
+- Use Leiden for better quality (requires igraph)
+- Use Louvain for faster processing
+
+### 6. End-to-End Speed
+- **Full processing** (first run): ~5-10 minutes (depending on API rate limits)
+- **Cached loading** (subsequent runs): ~2-3 seconds
+- **Query response**: ~2-5 seconds with hybrid search
 
 ## Testing
 
@@ -318,16 +358,13 @@ Adopted by the Constituent Assembly of India on November 26, 1949
 
 - SemRAG research paper authors
 - The Constitution of India and the Constituent Assembly
-- Dr. B.R. Ambedkar, the principal architect of the Indian Constitution
 - OpenAI for GPT models and embeddings
 - NetworkX, NLTK, and other open-source libraries
 
 ## Support
 
 For issues, questions, or contributions:
-- GitHub Issues: [issues](https://github.com/yourusername/apna_sanvidhan/issues)
-- Email: your.email@example.com
+- GitHub Issues: [issues](https://github.com/Bhargav-0718/Apna_Sanvidhan/issues)
+- Email: bhargav.07.bidkar@gmail.com
 
 ---
-
-**Built with ❤️ for preserving and disseminating knowledge about Dr. B.R. Ambedkar**
