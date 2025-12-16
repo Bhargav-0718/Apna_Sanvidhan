@@ -18,10 +18,12 @@ Apna Sanvidhan implements the SemRAG architecture specifically tailored for the 
 ✅ **Constitutional Entity Extraction**: Articles, rights, principles, institutions extraction
 ✅ **Multi-level Summarization**: Article and constitutional community summaries
 ✅ **Hybrid Search**: Combines local and global retrieval strategies
+✅ **Streamlit Web UI**: Interactive interface for constitutional queries
 ✅ **Configurable Pipeline**: YAML-based configuration
 ✅ **Persistent Storage**: Save and reload processed constitutional data
 ✅ **Embedding Caching**: Persistent pickle-based caching for sentences, chunks, entities, and communities
 ✅ **Batch Processing**: Optimized batch embedding generation with configurable batch sizes
+✅ **Parallel Summarization**: Concurrent LLM API calls for faster summarization
 ✅ **Parallel Entity Extraction**: Concurrent LLM API calls with ThreadPoolExecutor for faster extraction
 
 ## Installation
@@ -99,6 +101,27 @@ result = rag_system.query("What is Article 15 of the Constitution?")
 print(result["answer"])
 ```
 
+### Web UI with Streamlit
+
+Launch the interactive Streamlit web interface:
+
+```bash
+streamlit run app.py
+```
+
+The web UI provides:
+- 🎨 **User-friendly interface** for asking constitutional questions
+- 📊 **Interactive results** with source contexts and relevant entities
+- ⚙️ **Settings panel** to choose search method (local, global, hybrid)
+- 📚 **Source tracking** to see which constitutional provisions were used
+- 🏷️ **Entity visualization** of relevant constitutional entities
+- 💾 **Automatic caching** for instant subsequent queries
+
+The app automatically handles:
+- First-time document processing (happens in background)
+- Loading from cache on subsequent runs
+- All embedding computations and batch processing
+
 ## Configuration
 
 Edit `config.yaml` to customize the system:
@@ -131,6 +154,11 @@ entity_extraction:
     - DATE  # Important constitutional dates and amendments
   extract_relationships: true
   max_entities_per_chunk: 20
+
+# Parallel summarization
+summarization:
+  parallel: true  # Enable parallel summarization
+  max_workers: 5  # Number of concurrent summarization workers
 
 # Data storage and caching
 data:
@@ -199,28 +227,36 @@ Best for: **Complex constitutional questions requiring both detail and breadth**
 
 ```
 apna_sanvidhan/
-├── config.yaml                      # Configuration file
-├── requirements.txt                 # Dependencies
+├── app.py                          # Streamlit web interface
+├── config.yaml                     # Configuration file
+├── requirements.txt                # Dependencies
 ├── setup.py                        # Package setup
 ├── README.md                       # This file
+├── example.py                      # Example usage script
 ├── data/
 │   ├── Constitution_of_India.pdf   # Input document
+│   ├── cache/                      # Embedding cache (auto-generated)
+│   │   ├── sentence_embeddings.pkl
+│   │   ├── chunk_embeddings.pkl
+│   │   ├── entity_embeddings.pkl
+│   │   └── community_embeddings.pkl
 │   └── processed/                  # Processed constitutional data
 │       ├── chunks.json
 │       ├── entities.json
 │       ├── graph.json
 │       ├── communities.json
 │       └── summaries.json
+├── logs/                           # Pipeline logs
 ├── src/
     ├── cache/                      # Embedding caching and batch processing
     │   ├── embedding_cache.py      # Pickle-based persistent embedding cache
-    │   └── batch_processor.py      # Batch embedding processor with cache
+    │   └── batch_processor.py      # Batch embedding processor with cache awareness
     ├── chunking/                   # Semantic chunking modules
     │   ├── semantic_chunker.py
     │   └── buffer_merger.py
     ├── graph/                      # Graph construction
-    │   ├── batch_entity_extractor.py  # Parallel entity extraction
-    │   ├── batch_summarizer.py        # Parallel summarization
+    │   ├── batch_entity_extractor.py  # Parallel entity extraction (ThreadPoolExecutor)
+    │   ├── batch_summarizer.py        # Parallel summarization (ThreadPoolExecutor)
     │   ├── graph_builder.py
     │   └── community_detector.py
     ├── llm/                        # LLM interaction
@@ -228,11 +264,12 @@ apna_sanvidhan/
     │   ├── prompt_templates.py
     │   └── answer_generator.py
     ├── retrieval/                  # Retrieval modules
-    │   ├── local_search.py
-    │   ├── global_search.py
+    │   ├── local_search.py         # Entity-based search with cache-aware entity embeddings
+    │   ├── global_search.py        # Community-based search with caching
     │   └── ranker.py
     └── pipeline/                   # Main pipeline
-        └── apnasanvidhan.py
+        └── apnasanvidhan.py        # Main orchestration pipeline
+```
 
 ```
 ## API Reference
@@ -279,19 +316,27 @@ Main pipeline class for Constitution of India queries.
 - **Skip duplicates**: Enable `entity_extraction.skip_duplicate_chunks: true` to skip redundant text
 - **Typical speedup**: 3-5x faster than sequential extraction
 
-### 4. Buffer Size
+### 4. Parallel Summarization
+- **Max workers**: Set `summarization.max_workers: 5` (default)
+- **Enable parallel**: Set `summarization.parallel: true` in config
+- **Higher workers** (5-10): Faster concurrent API calls
+- **Lower workers** (1-3): Safer for rate limits
+- **Typical speedup**: 3-5x faster than sequential summarization
+
+### 5. Buffer Size
 - **0**: No context (fastest, less accurate)
 - **1**: One sentence context (balanced)
 - **3-5**: More context (slower, more accurate)
 
-### 5. Community Detection
+### 6. Community Detection
 - Use Leiden for better quality (requires igraph)
 - Use Louvain for faster processing
 
-### 6. End-to-End Speed
+### 7. End-to-End Speed
 - **Full processing** (first run): ~5-10 minutes (depending on API rate limits)
 - **Cached loading** (subsequent runs): ~2-3 seconds
 - **Query response**: ~2-5 seconds with hybrid search
+- **With parallel processing**: ~1.5-3 minutes full processing (3-5x faster)
 
 ## Testing
 
