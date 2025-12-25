@@ -63,6 +63,25 @@ class LocalSearch:
         """Precompute embeddings for all chunks using batch processing."""
         logger.info(f"Computing embeddings for {len(chunks)} chunks")
 
+        # Fast-path: load from vector store if already present
+        if self.vector_store is not None:
+            try:
+                stats = self.vector_store.get_stats()
+                expected_ids = {int(chunk["chunk_id"]) for chunk in chunks if "chunk_id" in chunk}
+                if stats.get("num_chunks", 0) >= len(expected_ids) and expected_ids:
+                    restored = self.vector_store.get_chunk_embeddings_dict()
+                    missing = expected_ids - set(restored.keys())
+                    if not missing:
+                        self.chunk_embeddings = {int(cid): np.array(emb).flatten() for cid, emb in restored.items()}
+                        logger.info(f"Loaded {len(self.chunk_embeddings)} chunk embeddings from vector store; skipping re-embedding")
+                        # Still populate entities
+                        self.compute_entity_embeddings()
+                        return
+                    else:
+                        logger.info(f"Vector store missing {len(missing)} chunk embeddings; recomputing")
+            except Exception as e:
+                logger.warning(f"Falling back to re-embedding chunks due to: {e}")
+
         chunk_texts = {
             chunk["chunk_id"]: chunk.get("text", "")
             for chunk in chunks
@@ -126,6 +145,23 @@ class LocalSearch:
                 ).flatten()
                 continue
             entities.append({"name": entity_text, "type": entity_type})
+
+        # Fast-path: load entities from vector store if fully present
+        if self.vector_store is not None:
+            try:
+                stats = self.vector_store.get_stats()
+                expected_names = {e["name"] for e in entities} | set(self.entity_embeddings.keys())
+                if stats.get("num_entities", 0) >= len(expected_names) and expected_names:
+                    restored = self.vector_store.get_entity_embeddings_dict()
+                    missing = expected_names - set(restored.keys())
+                    if not missing:
+                        self.entity_embeddings = {name: np.array(emb).flatten() for name, emb in restored.items()}
+                        logger.info(f"Loaded {len(self.entity_embeddings)} entity embeddings from vector store; skipping re-embedding")
+                        return
+                    else:
+                        logger.info(f"Vector store missing {len(missing)} entity embeddings; recomputing remaining")
+            except Exception as e:
+                logger.warning(f"Falling back to re-embedding entities due to: {e}")
 
         if not entities:
             logger.info("All entity embeddings already cached")

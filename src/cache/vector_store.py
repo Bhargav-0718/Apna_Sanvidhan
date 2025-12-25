@@ -273,3 +273,29 @@ class VectorStore:
             "num_entities": entity_count,
             "num_communities": community_count,
         }
+
+    # ------------------------------------------------------------------
+    # Reconstruct embeddings from FAISS (to avoid re-embedding)
+    # ------------------------------------------------------------------
+    def _reconstruct_embeddings(self, index: faiss.Index, metadata: List[Dict[str, Any]], key_field: str) -> Dict[Any, np.ndarray]:
+        """Rebuild an embedding dict from a FAISS index and metadata."""
+        embeddings: Dict[Any, np.ndarray] = {}
+        for pos, meta in enumerate(metadata):
+            try:
+                emb = index.reconstruct(pos)
+                embeddings[meta[key_field]] = np.array(emb, dtype=np.float32)
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct embedding at position {pos}: {e}")
+        return embeddings
+
+    def get_chunk_embeddings_dict(self) -> Dict[int, np.ndarray]:
+        """Return all chunk embeddings keyed by chunk_id from the FAISS index."""
+        return self._reconstruct_embeddings(self.chunk_index, self.chunk_metadata, "chunk_id")
+
+    def get_entity_embeddings_dict(self) -> Dict[str, np.ndarray]:
+        """Return all entity embeddings keyed by entity_name from the FAISS index."""
+        return self._reconstruct_embeddings(self.entity_index, self.entity_metadata, "entity_name")
+
+    def get_community_embeddings_dict(self) -> Dict[int, np.ndarray]:
+        """Return all community embeddings keyed by community_id from the FAISS index."""
+        return self._reconstruct_embeddings(self.community_index, self.community_metadata, "community_id")

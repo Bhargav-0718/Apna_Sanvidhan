@@ -168,7 +168,15 @@ def format_answer(result):
                 
                 # Score if available
                 if source.get("score") is not None:
-                    st.caption(f"Relevance Score: {source['score']:.2%}")
+                    score_val = source["score"]
+                    # Handle tuple scores (e.g., (similarity, something_else)) or plain numbers
+                    if isinstance(score_val, tuple) and score_val:
+                        score_val = score_val[0]
+                    try:
+                        score_float = float(score_val)
+                        st.caption(f"Relevance Score: {score_float:.2%}")
+                    except (TypeError, ValueError):
+                        st.caption(f"Relevance Score: {score_val}")
                 
                 st.divider()
     else:

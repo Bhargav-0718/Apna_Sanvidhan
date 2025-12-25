@@ -55,6 +55,24 @@ class GlobalSearch:
         """
         logger.info(f"Computing embeddings for {len(community_summaries)} communities using batch processing")
         
+        # Fast-path: load from vector store if already present
+        if self.vector_store is not None:
+            try:
+                stats = self.vector_store.get_stats()
+                expected_ids = set(community_summaries.keys())
+                if stats.get("num_communities", 0) >= len(expected_ids) and expected_ids:
+                    restored = self.vector_store.get_community_embeddings_dict()
+                    missing = expected_ids - set(restored.keys())
+                    if not missing:
+                        self.community_embeddings = {int(cid): np.array(emb).flatten() for cid, emb in restored.items()}
+                        logger.info(f"Loaded {len(self.community_embeddings)} community embeddings from vector store; skipping re-embedding")
+                        # Add to vector store not needed; already there
+                        return
+                    else:
+                        logger.info(f"Vector store missing {len(missing)} community embeddings; recomputing")
+            except Exception as e:
+                logger.warning(f"Falling back to re-embedding communities due to: {e}")
+
         # Batch process embeddings
         embeddings_dict = self.batch_processor.batch_embed_dict_texts(
             {str(cid): summary for cid, summary in community_summaries.items()},
