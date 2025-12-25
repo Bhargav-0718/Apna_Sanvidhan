@@ -24,23 +24,41 @@ def main():
         print("4. Building knowledge graph")
         print("5. Detecting constitutional thematic communities")
         print("6. Generating summaries")
-        print("7. Initializing retrieval")
+        print("7. Initializing retrieval (FAISS vector indices, no PKL caches)")
         
         # Process the Constitution of India
         rag_system.process_document(pdf_path="data/Constitution_of_India.pdf")
         
         print("\n✓ Constitution processed successfully!")
         print("Processed data saved to data/processed/")
+        # Show FAISS vector store stats
+        try:
+            stats = rag_system.vector_store.get_stats()
+            print(f"FAISS indices → chunks: {stats.get('num_chunks', 0)}, entities: {stats.get('num_entities', 0)}, communities: {stats.get('num_communities', 0)}")
+        except Exception:
+            pass
     else:
         print("\nLoading previously processed constitutional data...")
         try:
             rag_system.load_processed_data()
             print("✓ Data loaded successfully!")
+            # Show FAISS vector store stats
+            try:
+                stats = rag_system.vector_store.get_stats()
+                print(f"FAISS indices → chunks: {stats.get('num_chunks', 0)}, entities: {stats.get('num_entities', 0)}, communities: {stats.get('num_communities', 0)}")
+            except Exception:
+                pass
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             print(f"⚠️  Processed data invalid or missing ({exc}); reprocessing document...\n")
             rag_system.process_document(pdf_path="data/Constitution_of_India.pdf")
             print("\n✓ Document reprocessed successfully!")
             print("Processed data saved to data/processed/")
+            # Show FAISS vector store stats
+            try:
+                stats = rag_system.vector_store.get_stats()
+                print(f"FAISS indices → chunks: {stats.get('num_chunks', 0)}, entities: {stats.get('num_entities', 0)}, communities: {stats.get('num_communities', 0)}")
+            except Exception:
+                pass
     
     # Example questions demonstrating different search types
     questions = [
@@ -133,8 +151,8 @@ if __name__ == "__main__":
     # Check for API key
     if not os.environ.get("OPENAI_API_KEY"):
         print("⚠️  Warning: OPENAI_API_KEY not found in environment variables.")
-        print("Please set it before running:")
-        print("  export OPENAI_API_KEY='your-api-key-here'")
+        print("Please set it before running (Windows PowerShell):")
+        print("  $env:OPENAI_API_KEY = 'your-api-key-here'")
         print("\nOr create a .env file with:")
         print("  OPENAI_API_KEY=your-api-key-here")
         exit(1)

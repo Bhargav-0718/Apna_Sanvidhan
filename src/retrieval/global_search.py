@@ -23,7 +23,8 @@ class GlobalSearch:
         embedding_function,
         top_k_communities: int = 5,
         cache: Optional[EmbeddingCache] = None,
-        batch_size: int = 10
+        batch_size: int = 10,
+        vector_store = None
     ):
         """Initialize global search.
         
@@ -32,10 +33,12 @@ class GlobalSearch:
             top_k_communities: Number of communities to retrieve
             cache: Optional EmbeddingCache instance
             batch_size: Batch size for batch processing
+            vector_store: Optional VectorStore instance for fast retrieval
         """
         self.embedding_function = embedding_function
         self.top_k_communities = top_k_communities
         self.cache = cache if cache is not None else EmbeddingCache()
+        self.vector_store = vector_store
         self.batch_processor = BatchEmbeddingProcessor(embedding_function, batch_size=batch_size)
         
         # Cache for community summary embeddings
@@ -61,13 +64,17 @@ class GlobalSearch:
         
         # Convert string keys back to integers
         self.community_embeddings = {int(k): v for k, v in embeddings_dict.items()}
-        # Persist per-community embeddings in cache as well
-        try:
-            for k, v in self.community_embeddings.items():
-                self.cache.set_community_embedding(int(k), v)
-        except Exception:
-            # Non-fatal: sentence-level cache still persists embeddings
-            pass
+        
+        # Add embeddings to vector store for fast retrieval
+        if self.vector_store is not None:
+            logger.info("Adding community embeddings to vector store")
+            try:
+                self.vector_store.add_communities(self.community_embeddings)
+                logger.info(f"Successfully added {len(self.community_embeddings)} communities to vector store")
+            except Exception as e:
+                logger.error(f"Failed to add communities to vector store: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
     
     def rank_communities(
         self, 

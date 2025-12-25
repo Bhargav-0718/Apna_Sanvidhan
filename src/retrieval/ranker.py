@@ -46,14 +46,20 @@ class Ranker:
             global_results: Results from global search
             
         Returns:
-            Combined results dictionary
+            Combined results dictionary with metadata
         """
         logger.info("Combining local and global search results")
         
-        # Extract chunks and summaries
+        # Extract chunks and summaries with full metadata
         local_chunks = local_results.get("chunks", [])
+        local_chunk_ids = local_results.get("chunk_ids", [])
+        local_chunk_objects = local_results.get("chunk_objects", [])
+        local_chunk_scores = local_results.get("chunk_scores", [])
         global_summaries = global_results.get("community_summaries", [])
+        global_community_ids = global_results.get("community_ids", [])
+        global_community_scores = global_results.get("community_scores", [])
         entities = local_results.get("entities", [])
+        entity_scores = local_results.get("entity_scores", [])
         
         # Take top results based on weights
         num_local = int(self.top_k * self.local_weight / (self.local_weight + self.global_weight))
@@ -61,8 +67,14 @@ class Ranker:
         
         combined = {
             "local_chunks": local_chunks[:num_local],
+            "local_chunk_ids": local_chunk_ids[:num_local],
+            "local_chunk_objects": local_chunk_objects[:num_local],
+            "local_chunk_scores": local_chunk_scores[:num_local],
             "global_summaries": global_summaries[:num_global],
+            "global_community_ids": global_community_ids[:num_global],
+            "global_community_scores": global_community_scores[:num_global],
             "entities": entities,
+            "entity_scores": entity_scores,
             "local_results": local_results,
             "global_results": global_results
         }
@@ -125,7 +137,7 @@ class Ranker:
             rerank: Whether to re-rank results
             
         Returns:
-            Hybrid search results
+            Hybrid search results with chunk tracking
         """
         logger.info("Performing hybrid search")
         
@@ -135,9 +147,25 @@ class Ranker:
         # Optional re-ranking
         if rerank:
             local_chunks = combined["local_chunks"]
+            local_chunk_ids = combined.get("local_chunk_ids", [])
+            local_chunk_objects = combined.get("local_chunk_objects", [])
+            
             if local_chunks:
                 reranked = self.rerank_chunks(query, local_chunks)
-                combined["local_chunks"] = [chunk for chunk, score in reranked[:self.top_k]]
-                combined["chunk_scores"] = [(score) for chunk, score in reranked[:self.top_k]]
+                reranked_chunks = [chunk for chunk, score in reranked[:self.top_k]]
+                
+                # Map original indices to create new orderings
+                chunk_index_map = {chunk: idx for idx, chunk in enumerate(local_chunks)}
+                reranked_indices = [chunk_index_map[chunk] for chunk in reranked_chunks if chunk in chunk_index_map]
+                
+                combined["local_chunks"] = reranked_chunks
+                combined["chunk_scores"] = [score for chunk, score in reranked[:self.top_k]]
+                
+                # Reorder chunk IDs and objects accordingly
+                if local_chunk_ids:
+                    combined["local_chunk_ids"] = [local_chunk_ids[i] for i in reranked_indices if i < len(local_chunk_ids)]
+                
+                if local_chunk_objects:
+                    combined["local_chunk_objects"] = [local_chunk_objects[i] for i in reranked_indices if i < len(local_chunk_objects)]
         
         return combined

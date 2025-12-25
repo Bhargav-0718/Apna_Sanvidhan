@@ -11,7 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from tqdm.auto import tqdm
 
 from ..cache.embedding_cache import EmbeddingCache
-from ..cache.batch_processor import BatchEmbeddingProcessor
+from ..cache.batch_processor import BatchEmbeddingProcessor, BatchEntityEmbeddingProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,8 @@ class LocalSearch:
         graph_weight: float = 0.4,
         show_progress: bool = True,
         cache: Optional[EmbeddingCache] = None,
-        batch_size: int = 10
+        batch_size: int = 10,
+        vector_store = None
     ):
         self.graph = graph
         self.embedding_function = embedding_function
@@ -39,14 +40,20 @@ class LocalSearch:
         self.graph_weight = graph_weight
         self.show_progress = show_progress
         self.cache = cache if cache is not None else EmbeddingCache()
+        self.vector_store = vector_store
 
         self.batch_processor = BatchEmbeddingProcessor(
+            embedding_function,
+            batch_size=batch_size
+        )
+        self.entity_batch_processor = BatchEntityEmbeddingProcessor(
             embedding_function,
             batch_size=batch_size
         )
 
         # In-memory embedding stores
         self.chunk_embeddings: Dict[int, np.ndarray] = {}
+        self.entity_embeddings: Dict[str, np.ndarray] = {}
 
     # ---------------------------------------------------------------------
     # Embedding computation
@@ -67,15 +74,83 @@ class LocalSearch:
             desc="Embedding chunks"
         )
 
-        for cid, emb in embeddings.items():
-            emb = np.array(emb).flatten()
-            self.chunk_embeddings[cid] = emb
+        # Debug: Check first embedding
+        if embeddings:
+            first_key = list(embeddings.keys())[0]
+            first_emb = embeddings[first_key]
+            logger.info(f"First embedding sample - type: {type(first_emb)}, shape before flatten: {np.array(first_emb).shape}")
 
-            # Persist safely
+        for cid, emb in embeddings.items():
+            # Convert to numpy array first to check shape
+            emb_array = np.array(emb)
+            logger.debug(f"Chunk {cid}: embedding type={type(emb)}, shape before flatten={emb_array.shape}")
+            emb = emb_array.flatten()
+            logger.debug(f"Chunk {cid}: shape after flatten={emb.shape}")
+            # Convert string keys back to integers
+            chunk_id = int(cid) if isinstance(cid, str) else cid
+            self.chunk_embeddings[chunk_id] = emb
+        
+        # Add embeddings to vector store for fast retrieval
+        if self.vector_store is not None:
+            logger.info("Adding chunk embeddings to vector store")
             try:
-                self.cache.set_chunk_embedding(str(cid), emb)
-            except Exception:
-                pass
+                self.vector_store.add_chunks(self.chunk_embeddings)
+                logger.info(f"Successfully added {len(self.chunk_embeddings)} chunks to vector store")
+            except Exception as e:
+                logger.error(f"Failed to add chunks to vector store: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        # Also precompute entity embeddings with caching
+        self.compute_entity_embeddings()
+
+    def compute_entity_embeddings(self):
+        """Precompute embeddings for all entities using cache-aware batch processing."""
+        entity_nodes = [n for n in self.graph.nodes() if n.startswith("entity_")]
+        entities: List[Dict[str, str]] = []
+
+        logger.info(f"Computing embeddings for {len(entity_nodes)} entities")
+
+        for entity_node in entity_nodes:
+            entity_data = self.graph.nodes[entity_node]
+            entity_name = entity_data.get("entity_name", "").strip()
+            entity_type = entity_data.get("type", "")
+            if not entity_name:
+                continue
+            entity_text = f"{entity_name}".strip()
+
+            # Skip if already cached
+            if self.cache.get_entity_embedding(entity_text) is not None:
+                self.entity_embeddings[entity_text] = np.array(
+                    self.cache.get_entity_embedding(entity_text)
+                ).flatten()
+                continue
+            entities.append({"name": entity_text, "type": entity_type})
+
+        if not entities:
+            logger.info("All entity embeddings already cached")
+            return
+
+        logger.info(f"Computing embeddings for {len(entities)} uncached entities using batch processing")
+        embeddings_dict = self.entity_batch_processor.batch_embed_entities(
+            entities,
+            cache=self.cache,
+            desc="Embedding entities",
+        )
+
+        # Store in-memory for quick access
+        self.entity_embeddings.update(embeddings_dict)
+        
+        # Add entity embeddings to vector store
+        if self.vector_store is not None:
+            logger.info("Adding entity embeddings to vector store")
+            try:
+                self.vector_store.add_entities(self.entity_embeddings)
+                logger.info(f"Successfully added {len(self.entity_embeddings)} entities to vector store")
+            except Exception as e:
+                logger.error(f"Failed to add entities to vector store: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
 
     # ---------------------------------------------------------------------
     # Entity handling (SemRAG-style: graph-based, NOT vector-based)
@@ -207,6 +282,31 @@ class LocalSearch:
 
         candidate_chunk_ids = self.get_entity_chunks(entity_names)
 
+        # Fallback: if no entity-linked chunks, search across all chunks using semantic similarity
+        if not candidate_chunk_ids:
+            logger.info("No entity-linked chunks found; falling back to semantic search across all chunks")
+            # Compute query embedding for semantic similarity
+            try:
+                query_embedding = self.embedding_function([query])[0]
+                query_embedding = np.array(query_embedding).flatten().reshape(1, -1)
+                
+                chunk_similarities = []
+                for chunk_id, chunk_emb in self.chunk_embeddings.items():
+                    chunk_emb = np.array(chunk_emb).flatten().reshape(1, -1)
+                    try:
+                        similarity = cosine_similarity(query_embedding, chunk_emb)[0][0]
+                        chunk_similarities.append((chunk_id, similarity))
+                    except Exception as e:
+                        logger.warning(f"Error computing similarity for chunk {chunk_id}: {e}")
+                
+                # Sort by similarity and take top candidates
+                chunk_similarities.sort(key=lambda x: x[1], reverse=True)
+                candidate_chunk_ids = [cid for cid, _ in chunk_similarities[:min(len(chunk_similarities), 100)]]
+                logger.info(f"Semantic fallback: selected top {len(candidate_chunk_ids)} most similar chunks")
+            except Exception as e:
+                logger.warning(f"Error in semantic fallback: {e}; using all chunks")
+                candidate_chunk_ids = list(self.chunk_embeddings.keys())
+
         ranked_chunks = self.rank_chunks(
             query,
             candidate_chunk_ids,
@@ -223,11 +323,20 @@ class LocalSearch:
             for cid in top_chunk_ids
             if cid in chunk_map
         ]
+        
+        # Include full chunk objects with metadata
+        retrieved_chunk_objects = [
+            chunk_map[cid]
+            for cid in top_chunk_ids
+            if cid in chunk_map
+        ]
 
         return {
             "chunks": retrieved_chunks,
             "chunk_ids": top_chunk_ids,
+            "chunk_objects": retrieved_chunk_objects,
+            "chunk_scores": ranked_chunks[:self.top_k_chunks],
             "entities": entity_names[:5],
-            "num_candidates": len(candidate_chunk_ids),
             "entity_scores": entities[:5],
+            "num_candidates": len(candidate_chunk_ids),
         }

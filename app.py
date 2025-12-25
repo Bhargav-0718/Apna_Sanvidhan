@@ -124,19 +124,55 @@ def load_pipeline():
 # Result formatter
 # ---------------------------------------------------------------------
 def format_answer(result):
+    """Format and display the answer with all metadata."""
+    
     # Main answer
     st.header("✏️ Answer")
     st.write(result.get("answer", ""))
-
-    # Detailed context
-    if result.get("context"):
-        st.subheader("Key Changes Introduced")
-        contexts = result["context"]
-        if isinstance(contexts, list):
-            for ctx in contexts:
-                st.write("•", ctx)
-        else:
-            st.write(contexts)
+    
+    # Display source statistics
+    if result.get("search_type") == "hybrid":
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Local Chunks", result.get("num_local_chunks", 0))
+        with col2:
+            st.metric("Global Communities", result.get("num_global_communities", 0))
+        with col3:
+            st.metric("Total Sources", result.get("total_sources", 0))
+    elif result.get("search_type") == "local":
+        st.metric("Constitutional Sections Used", result.get("num_candidates", 0))
+    elif result.get("search_type") == "global":
+        st.metric("Community Summaries Used", len(result.get("global_context", [])))
+    
+    # Display sources cited at the end of answer
+    st.markdown("---")
+    st.markdown("### 📜 Constitutional Sections Referenced")
+    
+    if result.get("sources_cited"):
+        for idx, source in enumerate(result["sources_cited"], 1):
+            with st.container():
+                # Article and Clause header
+                header_parts = []
+                if source.get("article"):
+                    header_parts.append(f"Article {source['article']}")
+                if source.get("clause"):
+                    header_parts.append(f"Clause {source['clause']}")
+                
+                if header_parts:
+                    st.markdown(f"**{' - '.join(header_parts)}**")
+                else:
+                    st.markdown(f"**Section {idx}**")
+                
+                # Full text
+                st.write(source.get("full_text", source.get("text", "")))
+                
+                # Score if available
+                if source.get("score") is not None:
+                    st.caption(f"Relevance Score: {source['score']:.2%}")
+                
+                st.divider()
+    else:
+        st.info("No specific constitutional sections were directly referenced for this answer.")
 
 # ---------------------------------------------------------------------
 # Main app
@@ -158,6 +194,10 @@ def main():
         )
 
         st.markdown("---")
+        st.markdown("### FAISS Index Stats")
+        stats_placeholder = st.container()
+
+        st.markdown("---")
         st.markdown("### Example Questions")
         st.markdown(
             """
@@ -175,6 +215,17 @@ def main():
         st.stop()
 
     st.success("✅ Pipeline ready")
+
+    # Show vector store stats (num_* keys now exposed by vector store)
+    try:
+        stats = pipeline.vector_store.get_stats()
+        with stats_placeholder:
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("Chunks", stats.get("num_chunks", 0))
+            col_b.metric("Entities", stats.get("num_entities", 0))
+            col_c.metric("Communities", stats.get("num_communities", 0))
+    except Exception as e:
+        logger.warning(f"Failed to fetch vector store stats: {e}")
 
     # Query input
     st.markdown("### 💬 Ask a Question")

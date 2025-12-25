@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Optional
 import PyPDF2
 
 from ..cache.embedding_cache import EmbeddingCache
+from ..cache.vector_store import VectorStore
 from ..chunking.semantic_chunker import SemanticChunker
 from ..chunking.buffer_merger import BufferMerger
 from ..graph.batch_entity_extractor import BatchEntityExtractor
@@ -53,6 +54,9 @@ class ApnaSanvidhan:
         # Initialize embedding cache
         cache_dir = self.config.get("data", {}).get("cache_dir", "data/cache")
         self.cache = EmbeddingCache(cache_dir=cache_dir)
+        
+        # Initialize vector store (FAISS-based retrieval)
+        self.vector_store = VectorStore(embedding_dim=1536, cache_dir=cache_dir)
         
         # Initialize LLM client
         self.llm_client = LLMClient(self.config["llm"])
@@ -309,7 +313,8 @@ class ApnaSanvidhan:
             graph_weight=self.config["retrieval"]["local_search"]["graph_weight"],
             show_progress=self.config["retrieval"]["local_search"].get("progress_bar", True),
             cache=self.cache,
-            batch_size=self.config["retrieval"]["local_search"].get("batch_size", 10)
+            batch_size=self.config["retrieval"]["local_search"].get("batch_size", 10),
+            vector_store=self.vector_store
         )
         self.local_search.compute_chunk_embeddings(self.chunks)
         
@@ -318,7 +323,8 @@ class ApnaSanvidhan:
             embedding_function=self.llm_client.get_embedding,
             top_k_communities=self.config["retrieval"]["global_search"]["top_k_communities"],
             cache=self.cache,
-            batch_size=self.config["retrieval"]["global_search"].get("batch_size", 10)
+            batch_size=self.config["retrieval"]["global_search"].get("batch_size", 10),
+            vector_store=self.vector_store
         )
         self.global_search.compute_community_embeddings(self.community_summaries)
         
@@ -333,8 +339,9 @@ class ApnaSanvidhan:
         # Answer generator
         self.answer_generator = AnswerGenerator(llm_client=self.llm_client)
         
-        # Save embedding cache
-        self.cache.save_caches()
+        # Save vector store (FAISS indices only)
+        self.vector_store.save()
+        logger.info("Vector store saved to disk (using FAISS only, PKL caching removed)")
         
         logger.info("Document processing complete (checkpoints written)")
     
@@ -368,12 +375,28 @@ class ApnaSanvidhan:
                 rerank=self.config["ranking"]["rerank"]
             )
         
-        # Generate answer
-        answer_data = self.answer_generator.generate_answer(
-            question=question,
-            retrieval_results=retrieval_results,
-            search_type=search_type
-        )
+        # Generate answer with full retrieval metadata
+        if search_type == "hybrid":
+            # For hybrid search, extract all metadata and pass directly
+            answer_data = self.answer_generator.generate_hybrid_answer(
+                question=question,
+                local_context=retrieval_results.get("local_chunks", []),
+                global_context=retrieval_results.get("global_summaries", []),
+                entities=retrieval_results.get("entities", []),
+                local_chunk_ids=retrieval_results.get("local_chunk_ids", []),
+                local_chunk_objects=retrieval_results.get("local_chunk_objects", []),
+                local_chunk_scores=retrieval_results.get("local_chunk_scores", []),
+                global_community_ids=retrieval_results.get("global_community_ids", []),
+                global_community_scores=retrieval_results.get("global_community_scores", []),
+                entity_scores=retrieval_results.get("entity_scores", [])
+            )
+        else:
+            # For local/global search, use generic method
+            answer_data = self.answer_generator.generate_answer(
+                question=question,
+                retrieval_results=retrieval_results,
+                search_type=search_type
+            )
         
         logger.info("Query processing complete")
         
@@ -488,7 +511,8 @@ class ApnaSanvidhan:
             similarity_weight=self.config["retrieval"]["local_search"]["similarity_weight"],
             graph_weight=self.config["retrieval"]["local_search"]["graph_weight"],
             cache=self.cache,
-            batch_size=self.config["retrieval"]["local_search"].get("batch_size", 10)
+            batch_size=self.config["retrieval"]["local_search"].get("batch_size", 10),
+            vector_store=self.vector_store
         )
         self.local_search.compute_chunk_embeddings(self.chunks)
         
@@ -497,7 +521,8 @@ class ApnaSanvidhan:
             embedding_function=self.llm_client.get_embedding,
             top_k_communities=self.config["retrieval"]["global_search"]["top_k_communities"],
             cache=self.cache,
-            batch_size=self.config["retrieval"]["global_search"].get("batch_size", 10)
+            batch_size=self.config["retrieval"]["global_search"].get("batch_size", 10),
+            vector_store=self.vector_store
         )
         self.global_search.compute_community_embeddings(self.community_summaries)
         
@@ -511,6 +536,10 @@ class ApnaSanvidhan:
         
         # Answer generator
         self.answer_generator = AnswerGenerator(llm_client=self.llm_client)
+        
+        # Save vector store to disk (FAISS indices only)
+        self.vector_store.save()
+        logger.info("Vector store saved to disk (using FAISS only, PKL caching removed)")
 
 
  

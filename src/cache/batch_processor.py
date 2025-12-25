@@ -82,12 +82,20 @@ class BatchEmbeddingProcessor:
                         for text, emb in zip(texts_to_embed, new_embeddings):
                             cache.set_sentence_embedding(text, emb)
                     
-                    # Insert new embeddings back in correct positions
-                    result_idx = 0
+                    # Merge cached and new embeddings in correct order
+                    new_emb_idx = 0
+                    cached_emb_idx = 0
+                    final_batch = []
                     for j in range(len(batch_texts)):
                         if j in text_indices:
-                            batch_embeddings.insert(j, new_embeddings[result_idx])
-                            result_idx += 1
+                            # This position needs a new embedding
+                            final_batch.append(new_embeddings[new_emb_idx])
+                            new_emb_idx += 1
+                        else:
+                            # This position has a cached embedding
+                            final_batch.append(batch_embeddings[cached_emb_idx])
+                            cached_emb_idx += 1
+                    batch_embeddings = final_batch
                     
                 except Exception as e:
                     logger.error(f"Error getting embeddings for batch: {e}")
@@ -188,12 +196,10 @@ class BatchEntityEmbeddingProcessor:
                 try:
                     new_embeddings = self.embedding_function(names_to_embed)
                     
-                    # Cache and store new embeddings (ensure flattened)
+                    # Store new embeddings (ensure flattened)
                     for name, emb in zip(names_to_embed, new_embeddings):
                         emb_flat = np.array(emb).flatten()
                         batch_embeddings[name] = emb_flat
-                        if cache is not None:
-                            cache.set_entity_embedding(name, emb_flat)
                     
                 except Exception as e:
                     logger.error(f"Error getting embeddings for entity batch: {e}")

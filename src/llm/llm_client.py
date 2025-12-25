@@ -131,22 +131,27 @@ class LLMClient:
         """
         return [self.generate(prompt, temperature=temperature) for prompt in prompts]
     
-    def get_embedding(self, text: str, model: str = "text-embedding-ada-002") -> List[float]:
-        """Get embedding vector for text.
+    def get_embedding(self, text, model: str = "text-embedding-ada-002") -> List[float]:
+        """Get embedding vector for text (str) or list of texts.
         
         Args:
-            text: Input text
+            text: Input text or list of texts
             model: Embedding model name
             
         Returns:
-            Embedding vector
+            Embedding vector (list[float]) or list of embedding vectors
         """
         try:
             if self.provider == "openai":
+                # Accept both single string and list of strings
                 response = self.client.embeddings.create(
                     model=model,
                     input=text
                 )
+                # If input was a list, return list of embeddings
+                if isinstance(text, list):
+                    return [data.embedding for data in response.data]
+                # Otherwise return the single embedding
                 return response.data[0].embedding
         except Exception as e:
             logger.error(f"Error getting embedding: {e}")
