@@ -112,14 +112,17 @@ class GlobalSearch:
         query_embedding = np.array(query_embedding).reshape(1, -1)
         
         community_scores = []
-        
-        for comm_id in community_summaries.keys():
+
+        # Normalize keys to integers (JSON loads keys as strings)
+        summaries_int = {int(k): v for k, v in community_summaries.items()}
+
+        for comm_id in summaries_int.keys():
             if comm_id in self.community_embeddings:
                 comm_embedding = np.array(self.community_embeddings[comm_id]).reshape(1, -1)
-                
+
                 # Compute cosine similarity
                 similarity = cosine_similarity(query_embedding, comm_embedding)[0][0]
-                
+
                 community_scores.append((comm_id, similarity))
         
         # Sort by score
@@ -143,22 +146,25 @@ class GlobalSearch:
         """
         logger.info(f"Performing global search for query: {query}")
         
+        # Normalize keys to integers for consistent matching
+        summaries_int = {int(k): v for k, v in community_summaries.items()}
+
         # Rank communities
-        ranked_communities = self.rank_communities(query, community_summaries)
+        ranked_communities = self.rank_communities(query, summaries_int)
         
         # Get top-k communities
         top_community_ids = [comm_id for comm_id, score in ranked_communities[:self.top_k_communities]]
         
         # Retrieve community summaries
         retrieved_summaries = [
-            community_summaries[comm_id] 
-            for comm_id in top_community_ids 
-            if comm_id in community_summaries
+            summaries_int[comm_id]
+            for comm_id in top_community_ids
+            if comm_id in summaries_int
         ]
         
         return {
             "community_summaries": retrieved_summaries,
             "community_ids": top_community_ids,
-            "num_communities": len(community_summaries),
+            "num_communities": len(summaries_int),
             "community_scores": ranked_communities[:self.top_k_communities]
         }

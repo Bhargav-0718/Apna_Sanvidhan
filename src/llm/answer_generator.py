@@ -30,7 +30,8 @@ class AnswerGenerator:
         chunk_ids: List[int] = None,
         chunk_objects: List[Dict[str, Any]] = None,
         chunk_scores: List[float] = None,
-        entities: List[str] = None
+        entities: List[str] = None,
+        num_candidates: int = None
     ) -> Dict[str, Any]:
         """Generate answer using local search (entity-based) context.
         
@@ -59,30 +60,61 @@ class AnswerGenerator:
         chunks_used = []
         if chunk_objects:
             for idx, chunk_obj in enumerate(chunk_objects):
+                # Normalize score to a float (may be tuple (id, score))
+                raw_score = chunk_scores[idx] if chunk_scores and idx < len(chunk_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 chunk_info = {
                     "chunk_id": chunk_obj.get("chunk_id", idx),
                     "text": chunk_obj.get("text", ""),
-                    "score": chunk_scores[idx] if chunk_scores and idx < len(chunk_scores) else None,
+                    "score": norm_score,
                     "metadata": chunk_obj.get("metadata", {})
                 }
                 chunks_used.append(chunk_info)
         elif chunk_ids:
             for idx, chunk_id in enumerate(chunk_ids):
+                raw_score = chunk_scores[idx] if chunk_scores and idx < len(chunk_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 chunk_info = {
                     "chunk_id": chunk_id,
                     "text": context_chunks[idx] if idx < len(context_chunks) else "",
-                    "score": chunk_scores[idx] if chunk_scores and idx < len(chunk_scores) else None
+                    "score": norm_score
                 }
                 chunks_used.append(chunk_info)
+
+        # Extract article/clause information for UI citation block
+        sources_cited = []
+        for idx, chunk_text in enumerate(context_chunks):
+            source_info = self._extract_source_info(chunk_text)
+            raw_score = chunk_scores[idx] if chunk_scores and idx < len(chunk_scores) else None
+            if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                norm_score = raw_score[1]
+            else:
+                norm_score = raw_score
+            sources_cited.append({
+                "chunk_id": chunk_ids[idx] if chunk_ids and idx < len(chunk_ids) else idx,
+                "text": chunk_text[:500],
+                "article": source_info.get("article"),
+                "clause": source_info.get("clause"),
+                "full_text": chunk_text,
+                "score": norm_score
+            })
         
         return {
             "answer": answer,
             "search_type": "local",
             "num_chunks": len(context_chunks),
+            "num_candidates": num_candidates if num_candidates is not None else len(context_chunks),
             "chunk_ids": chunk_ids or list(range(len(context_chunks))),
             "chunks_used": chunks_used,
             "entities": entities or [],
-            "context": context_chunks
+            "context": context_chunks,
+            "sources_cited": sources_cited
         }
     
     def generate_global_answer(
@@ -116,10 +148,15 @@ class AnswerGenerator:
         communities_used = []
         if community_ids:
             for idx, comm_id in enumerate(community_ids):
+                raw_score = community_scores[idx] if community_scores and idx < len(community_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 comm_info = {
                     "community_id": comm_id,
                     "summary": community_summaries[idx] if idx < len(community_summaries) else "",
-                    "score": community_scores[idx] if community_scores and idx < len(community_scores) else None
+                    "score": norm_score
                 }
                 communities_used.append(comm_info)
         
@@ -177,19 +214,29 @@ class AnswerGenerator:
         local_chunks_used = []
         if local_chunk_objects:
             for idx, chunk_obj in enumerate(local_chunk_objects):
+                raw_score = local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 chunk_info = {
                     "chunk_id": chunk_obj.get("chunk_id", idx),
                     "text": chunk_obj.get("text", ""),
-                    "score": local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None,
+                    "score": norm_score,
                     "metadata": chunk_obj.get("metadata", {})
                 }
                 local_chunks_used.append(chunk_info)
         elif local_chunk_ids:
             for idx, chunk_id in enumerate(local_chunk_ids):
+                raw_score = local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 chunk_info = {
                     "chunk_id": chunk_id,
                     "text": local_context[idx] if idx < len(local_context) else "",
-                    "score": local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None
+                    "score": norm_score
                 }
                 local_chunks_used.append(chunk_info)
         
@@ -197,10 +244,15 @@ class AnswerGenerator:
         global_communities_used = []
         if global_community_ids:
             for idx, comm_id in enumerate(global_community_ids):
+                raw_score = global_community_scores[idx] if global_community_scores and idx < len(global_community_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 comm_info = {
                     "community_id": comm_id,
                     "summary": global_context[idx] if idx < len(global_context) else "",
-                    "score": global_community_scores[idx] if global_community_scores and idx < len(global_community_scores) else None
+                    "score": norm_score
                 }
                 global_communities_used.append(comm_info)
         
@@ -208,9 +260,14 @@ class AnswerGenerator:
         entities_used = []
         if entities:
             for idx, entity in enumerate(entities):
+                raw_score = entity_scores[idx] if entity_scores and idx < len(entity_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 entity_info = {
                     "entity": entity,
-                    "score": entity_scores[idx] if entity_scores and idx < len(entity_scores) else None
+                    "score": norm_score
                 }
                 entities_used.append(entity_info)
         
@@ -221,13 +278,18 @@ class AnswerGenerator:
         if local_context:
             for idx, chunk_text in enumerate(local_context):
                 source_info = self._extract_source_info(chunk_text)
+                raw_score = local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None
+                if isinstance(raw_score, tuple) and len(raw_score) >= 2:
+                    norm_score = raw_score[1]
+                else:
+                    norm_score = raw_score
                 sources_cited.append({
                     "chunk_id": local_chunk_ids[idx] if local_chunk_ids and idx < len(local_chunk_ids) else idx,
                     "text": chunk_text[:500],  # First 500 chars for preview
                     "article": source_info.get("article"),
                     "clause": source_info.get("clause"),
                     "full_text": chunk_text,
-                    "score": local_chunk_scores[idx] if local_chunk_scores and idx < len(local_chunk_scores) else None
+                    "score": norm_score
                 })
         
         return {
@@ -300,7 +362,8 @@ class AnswerGenerator:
                 chunk_ids=retrieval_results.get("chunk_ids", []),
                 chunk_objects=retrieval_results.get("chunk_objects", []),
                 chunk_scores=retrieval_results.get("chunk_scores", []),
-                entities=retrieval_results.get("entities", [])
+                entities=retrieval_results.get("entities", []),
+                num_candidates=retrieval_results.get("num_candidates")
             )
         elif search_type == "global":
             return self.generate_global_answer(

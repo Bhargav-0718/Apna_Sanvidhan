@@ -140,47 +140,92 @@ def format_answer(result):
         with col3:
             st.metric("Total Sources", result.get("total_sources", 0))
     elif result.get("search_type") == "local":
-        st.metric("Constitutional Sections Used", result.get("num_candidates", 0))
+        # Prefer chunks actually used; fall back to candidates
+        used_count = len(result.get("chunks_used", []))
+        st.metric("Constitutional Sections Used", used_count or result.get("num_candidates", 0))
     elif result.get("search_type") == "global":
-        st.metric("Community Summaries Used", len(result.get("global_context", [])))
+        # Global answers return 'context' as community summaries
+        st.metric("Community Summaries Used", len(result.get("context", [])))
     
-    # Display sources cited at the end of answer
+    # Display references block based on search type
     st.markdown("---")
-    st.markdown("### 📜 Constitutional Sections Referenced")
-    
-    if result.get("sources_cited"):
-        for idx, source in enumerate(result["sources_cited"], 1):
-            with st.container():
-                # Article and Clause header
-                header_parts = []
-                if source.get("article"):
-                    header_parts.append(f"Article {source['article']}")
-                if source.get("clause"):
-                    header_parts.append(f"Clause {source['clause']}")
-                
-                if header_parts:
-                    st.markdown(f"**{' - '.join(header_parts)}**")
-                else:
-                    st.markdown(f"**Section {idx}**")
-                
-                # Full text
-                st.write(source.get("full_text", source.get("text", "")))
-                
-                # Score if available
-                if source.get("score") is not None:
-                    score_val = source["score"]
-                    # Handle tuple scores (e.g., (similarity, something_else)) or plain numbers
-                    if isinstance(score_val, tuple) and score_val:
-                        score_val = score_val[0]
-                    try:
-                        score_float = float(score_val)
-                        st.caption(f"Relevance Score: {score_float:.2%}")
-                    except (TypeError, ValueError):
-                        st.caption(f"Relevance Score: {score_val}")
-                
-                st.divider()
+    if result.get("search_type") == "global":
+        st.markdown("### 🧭 Community Summaries Referenced")
+        communities_used = result.get("communities_used", [])
+        if communities_used:
+            for idx, comm in enumerate(communities_used, 1):
+                with st.container():
+                    st.markdown(f"**Community {comm.get('community_id', idx)}**")
+                    st.write(comm.get("summary", ""))
+                    score = comm.get("score")
+                    if score is not None:
+                        try:
+                            st.caption(f"Relevance Score: {float(score):.2%}")
+                        except (TypeError, ValueError):
+                            st.caption(f"Relevance Score: {score}")
+                    st.divider()
+        else:
+            # Fallback to raw context summaries
+            summaries = result.get("context", [])
+            if summaries:
+                for idx, summary in enumerate(summaries, 1):
+                    with st.container():
+                        st.markdown(f"**Community {idx}**")
+                        st.write(summary)
+                        st.divider()
+            else:
+                st.info("No community summaries were directly referenced for this answer.")
     else:
-        st.info("No specific constitutional sections were directly referenced for this answer.")
+        st.markdown("### 📜 Constitutional Sections Referenced")
+        # For local/hybrid, 'sources_cited' contains parsed article/clause. Fallback to chunks_used
+        if result.get("sources_cited"):
+            for idx, source in enumerate(result["sources_cited"], 1):
+                with st.container():
+                    # Article and Clause header
+                    header_parts = []
+                    if source.get("article"):
+                        header_parts.append(f"Article {source['article']}")
+                    if source.get("clause"):
+                        header_parts.append(f"Clause {source['clause']}")
+                    
+                    if header_parts:
+                        st.markdown(f"**{' - '.join(header_parts)}**")
+                    else:
+                        st.markdown(f"**Section {idx}**")
+                    
+                    # Full text
+                    st.write(source.get("full_text", source.get("text", "")))
+                    
+                    # Score if available
+                    if source.get("score") is not None:
+                        score_val = source["score"]
+                        # Handle tuple scores (e.g., (id, score)) or plain numbers
+                        if isinstance(score_val, tuple) and len(score_val) >= 2:
+                            score_val = score_val[1]
+                        try:
+                            score_float = float(score_val)
+                            st.caption(f"Relevance Score: {score_float:.2%}")
+                        except (TypeError, ValueError):
+                            st.caption(f"Relevance Score: {score_val}")
+                    
+                    st.divider()
+        else:
+            # Fallback for local search when sources_cited missing
+            chunks_used = result.get("chunks_used", [])
+            if chunks_used:
+                for idx, source in enumerate(chunks_used, 1):
+                    with st.container():
+                        st.markdown(f"**Section {idx}**")
+                        st.write(source.get("text", ""))
+                        score = source.get("score")
+                        if score is not None:
+                            try:
+                                st.caption(f"Relevance Score: {float(score):.2%}")
+                            except (TypeError, ValueError):
+                                st.caption(f"Relevance Score: {score}")
+                        st.divider()
+            else:
+                st.info("No specific constitutional sections were directly referenced for this answer.")
 
 # ---------------------------------------------------------------------
 # Main app
